@@ -1,0 +1,13 @@
+{
+  "server_url": "ws://127.0.0.1:8000",
+  "api_key": "dev-secret-change-me",
+  "device_id": "friend_rig_01",
+  "sample_rate": 16000,
+  "tap_duration_ms": 1000,
+  "taps_per_object": 5,
+  "serial_port": "COM5",
+  "serial_baud": 115200,
+  "input_mode": "wav_folder",
+  "wav_folder": "./taps",
+  "local_log_dir": "./logs"
+}

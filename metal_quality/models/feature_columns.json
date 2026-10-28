@@ -1,0 +1,1 @@
+["rms", "peak", "peak2peak", "crest", "energy", "zcr", "kurtosis", "skew", "decay_tau", "T60", "time_to_10pct", "env_peak", "dom_freq", "spectral_centroid", "spectral_bandwidth", "rolloff85", "spectral_flatness", "Q_factor", "har_ratio_1", "har_ratio_2", "band_ratio_0", "band_ratio_1", "band_ratio_2", "band_ratio_3", "peak_freq_0", "peak_freq_1", "peak_freq_2"]

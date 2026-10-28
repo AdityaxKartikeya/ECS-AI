@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Metal Quality — Live Telemetry</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0e1a;--bg2:#0f1424;--panel:#12182b;--panel2:#161d33;
+    --fg:#d7dcee;--muted:#6b7394;--dim:#4a5170;
+    --line:#1f2740;--line2:#2a3352;
+    --accent:#22d3ee;--accent2:#06b6d4;
+    --good:#10b981;--warn:#f59e0b;--bad:#ef4444;--violet:#8b5cf6;
+    --mono:'JetBrains Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--fg);font-size:13px;line-height:1.4;overflow-x:hidden}
+  .app{display:grid;grid-template-rows:48px 1fr;height:100vh}
+
+  /* top bar */
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid var(--line);background:var(--bg2)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px;letter-spacing:.2px}
+  .brand .mark{width:18px;height:18px;border:2px solid var(--accent);border-radius:4px;position:relative}
+  .brand .mark::after{content:'';position:absolute;inset:3px;background:var(--accent);border-radius:1px}
+  .topbar .right{display:flex;align-items:center;gap:16px;font-size:12px;color:var(--muted)}
+  .conn{display:flex;align-items:center;gap:6px}
+  .conn .dot{width:7px;height:7px;border-radius:50%;background:var(--bad)}
+  .conn.ok .dot{background:var(--good);box-shadow:0 0 6px var(--good)}
+  .clock{font-family:var(--mono);color:var(--fg)}
+
+  /* layout */
+  .main{display:grid;grid-template-columns:260px 1fr 300px;gap:0;overflow:hidden}
+  .sidebar{border-right:1px solid var(--line);padding:16px;overflow:auto;background:var(--bg2)}
+  .content{padding:16px;overflow:auto}
+  .aside{border-left:1px solid var(--line);padding:16px;overflow:auto;background:var(--bg2)}
+
+  /* panels */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;margin-bottom:12px}
+  .panel-h{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+  .panel-h h2{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);font-weight:600}
+  .panel-h .meta{font-size:11px;color:var(--dim);font-family:var(--mono)}
+  .panel-b{padding:12px 14px}
+
+  /* kpi */
+  .kpi{padding:12px 14px;border-bottom:1px solid var(--line)}
+  .kpi:last-child{border-bottom:none}
+  .kpi .label{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin-bottom:4px}
+  .kpi .val{font-family:var(--mono);font-size:22px;font-weight:500;letter-spacing:-.5px}
+  .kpi .delta{font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono)}
+  .kpi .spark{height:24px;margin-top:6px}
+
+  /* charts */
+  .chart{height:180px;position:relative}
+  .chart.lg{height:240px}
+  .chart.sm{height:140px}
+
+  /* feed table */
+  .feed{width:100%;border-collapse:collapse;font-size:12px}
+  .feed th{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;position:sticky;top:0;background:var(--panel)}
+  .feed td{padding:6px 8px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11.5px}
+  .feed tr:hover td{background:var(--panel2)}
+  .feed .q{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10.5px;font-weight:600;letter-spacing:.2px}
+  .q-good{background:rgba(16,185,129,.15);color:var(--good)}
+  .q-poor{background:rgba(245,158,11,.15);color:var(--warn)}
+  .q-wood{background:rgba(139,92,246,.15);color:var(--violet)}
+  .q-bad{background:rgba(239,68,68,.15);color:var(--bad)}
+  .q-metal{background:rgba(34,211,238,.12);color:var(--accent)}
+
+  .objrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
+  .objrow:last-child{border-bottom:none}
+  .objrow .name{flex:1;font-family:var(--mono);font-size:12px}
+  .objrow .bar{height:4px;background:var(--line2);border-radius:2px;flex:2;overflow:hidden}
+  .objrow .bar>div{height:100%;background:var(--accent);border-radius:2px}
+  .objrow .num{font-family:var(--mono);font-size:11px;color:var(--muted);width:40px;text-align:right}
+
+  .legend{display:flex;flex-wrap:wrap;gap:10px 14px;font-size:11px;color:var(--muted)}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .legend i{width:8px;height:8px;border-radius:2px;display:inline-block}
+
+  .btn{background:transparent;border:1px solid var(--line2);color:var(--fg);padding:5px 10px;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#0a0e1a;border-color:var(--accent);font-weight:600}
+
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+
+  .status-pill{font-size:10px;padding:2px 7px;border-radius:999px;border:1px solid var(--line2);color:var(--muted)}
+  .status-pill.ok{border-color:var(--good);color:var(--good)}
+  .status-pill.warn{border-color:var(--warn);color:var(--warn)}
+
+  .empty{color:var(--dim);font-size:12px;padding:20px;text-align:center}
+
+  /* scrollbar */
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+
+  @media(max-width:1100px){.main{grid-template-columns:1fr}.sidebar,.aside{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand"><div class="mark"></div>METAL QUALITY TELEMETRY</div>
+    <div class="right">
+      <div class="conn" id="conn"><span class="dot"></span><span id="connText">connecting…</span></div>
+      <div class="clock" id="clock">--:--:--</div>
+      <button class="btn" onclick="exportCSV()">Export CSV</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- SIDEBAR: KPIs -->
+    <aside class="sidebar">
+      <div class="panel">
+        <div class="panel-h"><h2>Throughput</h2><span class="meta" id="rate">—</span></div>
+        <div class="kpi">
+          <div class="label">Total taps</div>
+          <div class="val" id="k_total">0</div>
+          <div class="delta" id="k_rate">0 taps/min</div>
+          <canvas class="spark" id="spark_total"></canvas>
+        </div>
+        <div class="kpi">
+          <div class="label">Valid taps</div>
+          <div class="val" id="k_valid">0</div>
+          <div class="delta" id="k_validpct">0.0% valid</div>
+          <canvas class="spark" id="spark_valid"></canvas>
+        </div>
+        <div class="kpi">
+          <div class="label">Rejected</div>
+          <div class="val" id="k_rej">0</div>
+          <div class="delta" id="k_rejreason">—</div>
+          <canvas class="spark" id="spark_rej"></canvas>
+        </div>
+        <div class="kpi">
+          <div class="label">Avg confidence</div>
+          <div class="val" id="k_conf">0.00</div>
+          <div class="delta" id="k_objects">0 objects</div>
+          <canvas class="spark" id="spark_conf"></canvas>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-h"><h2>Model</h2><span class="meta" id="m_version">v1</span></div>
+        <div class="panel-b" style="font-size:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span class="muted">Classes</span><span id="m_classes" style="font-family:var(--mono)">—</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span class="muted">Features</span><span id="m_feats" style="font-family:var(--mono)">—</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span class="muted">Conf. gate</span><span style="font-family:var(--mono)">0.70</span></div>
+          <div style="display:flex;justify-content:space-between"><span class="muted">Transport</span><span style="font-family:var(--mono)">WebSocket</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-h"><h2>Rejection breakdown</h2></div>
+        <div class="chart sm"><canvas id="rejpie"></canvas></div>
+        <div class="legend" id="rejlegend" style="margin-top:8px"></div>
+      </div>
+    </aside>
+
+    <!-- CONTENT -->
+    <section class="content">
+      <div class="toolbar">
+        <span class="status-pill ok" id="livepill">LIVE</span>
+        <span class="muted" id="feedcount">0 recorded</span>
+        <span style="flex:1"></span>
+        <button class="btn" onclick="clearLocal()">Clear view</button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="panel">
+          <div class="panel-h"><h2>Quality distribution</h2><span class="meta" id="qtotal">0</span></div>
+          <div class="chart"><canvas id="pie"></canvas></div>
+          <div class="legend" id="pielegend" style="margin-top:8px"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><h2>Confidence over time</h2><span class="meta" id="confmeta">rolling 60</span></div>
+          <div class="chart"><canvas id="line"></canvas></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="panel">
+          <div class="panel-h"><h2>Dominant freq vs decay τ</h2><span class="meta">cluster view</span></div>
+          <div class="chart"><canvas id="scatter"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><h2>Feature fingerprint (avg per class)</h2><span class="meta">radar</span></div>
+          <div class="chart"><canvas id="radar"></canvas></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="panel">
+          <div class="panel-h"><h2>Live prediction feed</h2><span class="meta" id="feedmeta">—</span></div>
+          <div style="max-height:320px;overflow:auto">
+            <table class="feed">
+              <thead><tr><th>Time</th><th>Object</th><th>Tap</th><th>Quality</th><th>Conf</th><th>domFreq</th><th>τ</th><th>Status</th></tr></thead>
+              <tbody id="feedbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><h2>Confidence histogram</h2><span class="meta">bins</span></div>
+          <div class="chart sm"><canvas id="hist"></canvas></div>
+          <div style="margin-top:10px">
+            <div class="panel-h" style="border:none;padding:0 0 6px"><h2>Taps per object</h2></div>
+            <div id="objlist"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-h"><h2>Outcome timeline (stacked)</h2><span class="meta">last 60 taps</span></div>
+        <div class="chart"><canvas id="stacked"></canvas></div>
+      </div>
+    </section>
+
+    <!-- ASIDE: object detail -->
+    <aside class="aside">
+      <div class="panel">
+        <div class="panel-h"><h2>Selected object</h2><span class="meta" id="selname">—</span></div>
+        <div class="panel-b" id="objdetail" style="font-size:12px">
+          <div class="empty">Click an object in the list</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>Recent objects</h2></div>
+        <div id="objcards"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>System</h2></div>
+        <div class="panel-b" style="font-size:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="muted">Endpoint</span><span style="font-family:var(--mono)">/ws/ingest</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="muted">Dashboard</span><span style="font-family:var(--mono)">/ws/dashboard</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="muted">REST</span><span style="font-family:var(--mono)">/predict</span></div>
+          <div style="display:flex;justify-content:space-between"><span class="muted">Log dir</span><span style="font-family:var(--mono)">logs/</span></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+const WS_URL = (location.protocol==='https:'?'wss://':'ws://') + location.host;
+let recent = [];
+let objects = {};
+let qualityCounts = {};
+let rejCounts = {};
+let confHistory = [];
+let outcomeHistory = []; // {t, ok}
+
+// chart instances
+const pieChart = new Chart(document.getElementById('pie'), {
+  type:'doughnut', data:{labels:[],datasets:[{data:[],backgroundColor:['#10b981','#f59e0b','#8b5cf6','#22d3ee','#ef4444','#6b7394'],borderWidth:0}]},
+  options:{cutout:'62%',plugins:{legend:{display:false}},responsive:true,maintainAspectRatio:false}
+});
+const rejChart = new Chart(document.getElementById('rejpie'), {
+  type:'doughnut', data:{labels:[],datasets:[{data:[],backgroundColor:['#ef4444','#f59e0b','#22d3ee','#6b7394'],borderWidth:0}]},
+  options:{cutout:'62%',plugins:{legend:{display:false}},responsive:true,maintainAspectRatio:false}
+});
+const lineChart = new Chart(document.getElementById('line'), {
+  type:'line', data:{labels:[],datasets:[{label:'conf',data:[],borderColor:'#22d3ee',backgroundColor:'rgba(34,211,238,.08)',fill:true,tension:.25,pointRadius:0,borderWidth:1.5}]},
+  options:{scales:{x:{display:false},y:{min:0,max:1,ticks:{color:'#6b7394',font:{size:10}},grid:{color:'#1f2740'}}},plugins:{legend:{display:false}},responsive:true,maintainAspectRatio:false}
+});
+const scatterChart = new Chart(document.getElementById('scatter'), {
+  type:'scatter', data:{datasets:[]},
+  options:{scales:{x:{title:{display:true,text:'dominant freq (Hz)',color:'#6b7394',font:{size:10}},ticks:{color:'#6b7394',font:{size:10}},grid:{color:'#1f2740'}},
+            y:{title:{display:true,text:'decay τ (s)',color:'#6b7394',font:{size:10}},ticks:{color:'#6b7394',font:{size:10}},grid:{color:'#1f2740'}}},
+    plugins:{legend:{labels:{color:'#d7dcee',font:{size:10}}}},responsive:true,maintainAspectRatio:false}
+});
+const radarChart = new Chart(document.getElementById('radar'), {
+  type:'radar', data:{labels:['dom_freq','decay_tau','centroid','crest','flatness','rolloff85'],datasets:[]},
+  options:{scales:{r:{ticks:{display:false},grid:{color:'#1f2740'},angleLines:{color:'#1f2740'},pointLabels:{color:'#9aa3c7',font:{size:10}}}},
+    plugins:{legend:{labels:{color:'#d7dcee',font:{size:10}}}},responsive:true,maintainAspectRatio:false}
+});
+const histChart = new Chart(document.getElementById('hist'), {
+  type:'bar', data:{labels:['0-.2','.2-.4','.4-.6','.6-.8','.8-1'],datasets:[{data:[],backgroundColor:'#22d3ee',borderRadius:2}]},
+  options:{scales:{x:{ticks:{color:'#6b7394',font:{size:9}},grid:{display:false}},y:{ticks:{color:'#6b7394',font:{size:9}},grid:{color:'#1f2740'}}},plugins:{legend:{display:false}},responsive:true,maintainAspectRatio:false}
+});
+const stackedChart = new Chart(document.getElementById('stacked'), {
+  type:'bar', data:{labels:[],datasets:[
+    {label:'valid',data:[],backgroundColor:'#10b981',stack:'s'},
+    {label:'rejected',data:[],backgroundColor:'#ef4444',stack:'s'}
+  ]},
+  options:{scales:{x:{ticks:{color:'#6b7394',font:{size:9}},grid:{display:false}},y:{stacked:true,ticks:{color:'#6b7394',font:{size:9}},grid:{color:'#1f2740'}}},plugins:{legend:{labels:{color:'#d7dcee',font:{size:10}}}},responsive:true,maintainAspectRatio:false}
+});
+
+const sparkOpts = {type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#22d3ee',borderWidth:1.2,pointRadius:0,fill:false}]},options:{scales:{x:{display:false},y:{display:false}},plugins:{legend:{display:false}},responsive:true,maintainAspectRatio:false}};
+const spTotal=new Chart(document.getElementById('spark_total'),JSON.parse(JSON.stringify(sparkOpts)));
+const spValid=new Chart(document.getElementById('spark_valid'),JSON.parse(JSON.stringify(sparkOpts)));
+const spRej=new Chart(document.getElementById('spark_rej'),JSON.parse(JSON.stringify(sparkOpts)));
+const spConf=new Chart(document.getElementById('spark_conf'),JSON.parse(JSON.stringify(sparkOpts)));
+
+function qClass(q, peer){
+  if(peer) return 'q-metal';
+  if(!q) return 'q-bad';
+  if(q.includes('good')) return 'q-good';
+  if(q.includes('poor')) return 'q-poor';
+  if(q.includes('wood')) return 'q-wood';
+  if(q.includes('metal')) return 'q-metal';
+  return 'q-bad';
+}
+
+function addRecord(r){
+  r._ts = r.timestamp || Date.now()/1000;
+  recent.unshift(r);
+  if(recent.length>500) recent.pop();
+
+  if(r.features_ok){
+    if(r.quality) qualityCounts[r.quality] = (qualityCounts[r.quality]||0)+1;
+    if(!r.peer){
+      confHistory.unshift(r.confidence);
+      if(confHistory.length>60) confHistory.pop();
+    }
+  } else {
+    rejCounts[r.reason] = (rejCounts[r.reason]||0)+1;
+  }
+  outcomeHistory.unshift(r.features_ok?1:0);
+  if(outcomeHistory.length>60) outcomeHistory.pop();
+
+  const o = objects[r.object_id] || {taps:0,valid:0,peer:0,sumConf:0,last:r._ts,final:r.quality,feats:[]};
+  o.taps+=1;
+  if(r.peer){
+    o.peer=(o.peer||0)+1;
+    if(r.features) o.feats.push(r.features);
+  } else if(r.features_ok){
+    o.valid+=1;o.sumConf+=r.confidence;o.final=r.quality;if(r.features) o.feats.push(r.features);
+  }
+  o.last=r._ts;
+  objects[r.object_id]=o;
+
+  spTotal.data.datasets[0].data.push(recent.length);
+  if(spTotal.data.datasets[0].data.length>30) spTotal.data.datasets[0].data.shift();
+  spValid.data.datasets[0].data.push(o.valid);
+  if(spValid.data.datasets[0].data.length>30) spValid.data.datasets[0].data.shift();
+  spRej.data.datasets[0].data.push(Object.values(rejCounts).reduce((a,b)=>a+b,0));
+  if(spRej.data.datasets[0].data.length>30) spRej.data.datasets[0].data.shift();
+  spConf.data.datasets[0].data.push(r.features_ok && !r.peer ? r.confidence : 0);
+  if(spConf.data.datasets[0].data.length>30) spConf.data.datasets[0].data.shift();
+  [spTotal,spValid,spRej,spConf].forEach(c=>c.update('none'));
+
+  render();
+}
+
+function render(){
+  const total = recent.length;
+  const valid = recent.filter(r=>r.features_ok).length;
+  const rej = total-valid;
+  const scored = recent.filter(r=>r.features_ok && !r.peer);
+  const avgConf = scored.length? scored.reduce((a,r)=>a+r.confidence,0)/scored.length : 0;
+  document.getElementById('k_total').textContent = total;
+  document.getElementById('k_valid').textContent = valid;
+  document.getElementById('k_rej').textContent = rej;
+  document.getElementById('k_conf').textContent = avgConf.toFixed(2);
+  document.getElementById('k_validpct').textContent = (total? (valid/total*100).toFixed(1):0)+'% valid';
+  document.getElementById('k_objects').textContent = Object.keys(objects).length+' objects';
+  // rate
+  const now=Date.now()/1000;
+  const lastMin = recent.filter(r=> (now - r._ts) < 60).length;
+  document.getElementById('k_rate').textContent = lastMin+' taps/min';
+  const rejTop = Object.entries(rejCounts).sort((a,b)=>b[1]-a[1])[0];
+  document.getElementById('k_rejreason').textContent = rejTop? rejTop[0]+' · '+rejTop[1] : 'none';
+  document.getElementById('feedcount').textContent = total+' recorded';
+  document.getElementById('qtotal').textContent = valid;
+  document.getElementById('confmeta').textContent = 'rolling '+confHistory.length;
+  document.getElementById('rate').textContent = lastMin+'/min';
+
+  // feed table
+  document.getElementById('feedbody').innerHTML = recent.slice(0,40).map(r=>{
+    const t = new Date(r._ts*1000).toLocaleTimeString();
+    const f = r.features||{};
+    return `<tr>
+      <td>${t}</td><td>${r.object_id}</td><td>${r.tap_id}</td>
+      <td><span class="q ${qClass(r.quality, r.peer)}">${r.quality || (r.peer?'peer':'—')}</span></td>
+      <td>${r.features_ok && !r.peer? r.confidence.toFixed(3):'—'}</td>
+      <td>${f.dom_freq? f.dom_freq.toFixed(0):'—'}</td>
+      <td>${f.decay_tau? f.decay_tau.toFixed(3):'—'}</td>
+      <td>${r.features_ok?'<span class="q q-good">ok</span>':'<span class="q q-bad">'+r.reason+'</span>'}</td>
+    </tr>`;
+  }).join('');
+
+  // pie quality
+  const qlabels = Object.keys(qualityCounts);
+  pieChart.data.labels = qlabels;
+  pieChart.data.datasets[0].data = qlabels.map(k=>qualityCounts[k]);
+  pieChart.update('none');
+
+  // rej pie
+  const rlabels = Object.keys(rejCounts);
+  rejChart.data.labels = rlabels;
+  rejChart.data.datasets[0].data = rlabels.map(k=>rejCounts[k]);
+  rejChart.update('none');
+  document.getElementById('rejlegend').innerHTML = rlabels.map((l,i)=>`<span><i style="background:${['#ef4444','#f59e0b','#22d3ee','#6b7394'][i%4]}"></i>${l} ${rejCounts[l]}</span>`).join('');
+  document.getElementById('pielegend').innerHTML = qlabels.map((l,i)=>`<span><i style="background:${['#10b981','#f59e0b','#8b5cf6','#22d3ee','#ef4444','#6b7394'][i%6]}"></i>${l} ${qualityCounts[l]}</span>`).join('');
+
+  // line
+  lineChart.data.labels = confHistory.map((_,i)=>i);
+  lineChart.data.datasets[0].data = confHistory.slice().reverse();
+  lineChart.update('none');
+
+  // scatter: dom_freq vs decay_tau colored by quality
+  const byQ = {};
+  recent.forEach(r=>{
+    if(!r.features_ok || r.peer) return;
+    const f=r.features||{};
+    if(f.dom_freq==null || f.decay_tau==null) return;
+    (byQ[r.quality]=byQ[r.quality]||[]).push({x:f.dom_freq, y:f.decay_tau});
+  });
+  const palette = {'metal_good':'#10b981','metal_poor':'#f59e0b','wood':'#8b5cf6'};
+  scatterChart.data.datasets = Object.keys(byQ).map(q=>({
+    label:q, data:byQ[q], backgroundColor: (palette[q]||'#22d3ee')+'99', borderColor:palette[q]||'#22d3ee', pointRadius:4
+  }));
+  scatterChart.update('none');
+
+  // radar: avg normalized features per class
+  const feats = ['dom_freq','decay_tau','centroid','crest','flatness','rolloff85'];
+  const featMax = {};
+  feats.forEach(f=>{ featMax[f]=Math.max(1,...recent.filter(r=>r.features_ok).map(r=>(r.features||{})[f]||0)); });
+  const radarSets = Object.keys(byQ).map(q=>{
+    const rs = recent.filter(r=>r.features_ok && r.quality===q);
+    const avg = feats.map(f=> rs.length? rs.reduce((a,r)=>a+((r.features||{})[f]||0),0)/rs.length / (featMax[f]||1) : 0);
+    const c = palette[q]||'#22d3ee';
+    return {label:q, data:avg, borderColor:c, backgroundColor:c+'22', pointRadius:2, borderWidth:1.5};
+  });
+  radarChart.data.datasets = radarSets;
+  radarChart.update('none');
+
+  // hist confidence
+  const bins=[0,0,0,0,0];
+  recent.filter(r=>r.features_ok && !r.peer).forEach(r=>{ const i=Math.min(4,Math.floor(r.confidence*5)); bins[i]++; });
+  histChart.data.datasets[0].data = bins;
+  histChart.update('none');
+
+  // stacked timeline (bucket last 60 into 12 groups of 5)
+  const buckets=[]; const bucketSize=5;
+  for(let i=0;i<60;i+=bucketSize){
+    const chunk = outcomeHistory.slice(i,i+bucketSize);
+    if(!chunk.length) break;
+    buckets.push({ok:chunk.filter(x=>x===1).length, bad:chunk.filter(x=>x===0).length});
+  }
+  buckets.reverse();
+  stackedChart.data.labels = buckets.map((_,i)=>i+1);
+  stackedChart.data.datasets[0].data = buckets.map(b=>b.ok);
+  stackedChart.data.datasets[1].data = buckets.map(b=>b.bad);
+  stackedChart.update('none');
+
+  // object list + cards
+  const onames = Object.keys(objects).sort((a,b)=>objects[b].taps-objects[a].taps);
+  document.getElementById('objlist').innerHTML = onames.slice(0,8).map(k=>{
+    const o=objects[k]; const pct = o.taps? (o.valid/o.taps*100):0;
+    const num = o.valid ? `${o.valid}/${o.taps}` : (o.peer? `${o.taps} peer` : `0/${o.taps}`);
+    return `<div class="objrow" onclick="selectObj('${k}')">
+      <div class="name">${k}</div>
+      <div class="bar"><div style="width:${pct}%"></div></div>
+      <div class="num">${num}</div>
+    </div>`;
+  }).join('') || '<div class="empty">no objects yet</div>';
+
+  document.getElementById('objcards').innerHTML = onames.slice(0,6).map(k=>{
+    const o=objects[k];
+    return `<div class="objrow" onclick="selectObj('${k}')">
+      <div class="name">${k}</div>
+      <div class="num">${o.valid? (o.sumConf/o.valid).toFixed(2):'—'}</div>
+    </div>`;
+  }).join('') || '<div class="empty">—</div>';
+}
+
+function selectObj(name){
+  const o = objects[name];
+  if(!o) return;
+  document.getElementById('selname').textContent = name;
+  document.getElementById('objdetail').innerHTML = `
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="muted">Taps</span><span style="font-family:var(--mono)">${o.taps}</span></div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="muted">Valid</span><span style="font-family:var(--mono)">${o.valid}</span></div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="muted">Avg conf</span><span style="font-family:var(--mono)">${o.valid?(o.sumConf/o.valid).toFixed(3):'—'}</span></div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="muted">Final quality</span><span class="q ${qClass(o.final)}">${o.final||'—'}</span></div>
+    <div style="display:flex;justify-content:space-between"><span class="muted">Last seen</span><span style="font-family:var(--mono)">${new Date(o.last*1000).toLocaleTimeString()}</span></div>
+  `;
+}
+
+// WebSocket
+let ws, wsOk=false;
+function connectWS(){
+  try{
+    ws = new WebSocket(WS_URL+'/ws/dashboard');
+    ws.onopen = ()=>{ wsOk=true; document.getElementById('conn').classList.add('ok'); document.getElementById('connText').textContent='ws connected'; };
+    ws.onmessage = (e)=>{
+      const m = JSON.parse(e.data);
+      if(m.type==='snapshot'){
+        m.items.slice().reverse().forEach(addRecord);
+      } else if(m.type==='prediction'){
+        addRecord(m.data);
+      }
+    };
+    ws.onclose = ()=>{ wsOk=false; document.getElementById('conn').classList.remove('ok'); document.getElementById('connText').textContent='reconnecting…'; setTimeout(connectWS,2000); };
+    ws.onerror = ()=>{ ws.close(); };
+  }catch(e){ setTimeout(connectWS,2000); }
+}
+
+// fallback poll
+async function poll(){
+  try{
+    const r = await fetch(API+'/recent?limit=200');
+    const d = await r.json();
+    // only use if ws not delivering
+  }catch(e){}
+}
+
+// clock
+setInterval(()=>{ document.getElementById('clock').textContent = new Date().toLocaleTimeString(); },1000);
+
+// model info
+fetch(API+'/health').then(r=>r.json()).then(d=>{
+  document.getElementById('m_classes').textContent = d.classes.join(', ');
+  document.getElementById('m_feats').textContent = d.n_features;
+}).catch(()=>{});
+
+function clearLocal(){
+  recent=[]; objects={}; qualityCounts={}; rejCounts={}; confHistory=[]; outcomeHistory=[];
+  [spTotal,spValid,spRej,spConf].forEach(c=>{c.data.datasets[0].data=[];c.update();});
+  render();
+}
+
+function exportCSV(){
+  const rows=[['timestamp','object_id','tap_id','quality','confidence','features_ok','reason','dom_freq','decay_tau']];
+  recent.forEach(r=>{
+    const f=r.features||{};
+    rows.push([r._ts,r.object_id,r.tap_id,r.quality,r.confidence,r.features_ok,r.reason,f.dom_freq||'',f.decay_tau||'']);
+  });
+  const csv=rows.map(r=>r.join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='telemetry.csv';
+  a.click();
+}
+
+connectWS();
+</script>
+</body>
+</html>
